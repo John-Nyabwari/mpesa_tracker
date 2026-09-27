@@ -18,28 +18,21 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-# Attempt to set APP_HOME
-
-# Resolve links: $0 may be a link
+# Resolve APP_HOME
 app_path=$0
-
-# Need this for daisy-chained symlinks.
 while
-    APP_HOME=${app_path%"${app_path##*/}"}  # leaves a trailing /; empty if no leading path
+    APP_HOME=${app_path%"${app_path##*/}"}
     [ -h "$app_path" ]
 do
     ls=$( ls -ld "$app_path" )
     link=${ls#*' -> '}
-    case $link in             #(
-      /*)   app_path=$link ;; #(
+    case $link in
+      /*)   app_path=$link ;;
       *)    app_path=$APP_HOME$link ;;
     esac
 done
 
-# This is normally unused
-# shellcheck disable=SC2034
 APP_BASE_NAME=${0##*/}
-# Discard cd standard output in case $CDPATH is set (https://github.com/gradle/gradle/issues/25036)
 APP_HOME=$( cd -P "${APP_HOME:-./}" > /dev/null && printf '%s\n' "$PWD" ) || exit
 
 # 1. Ensure .env exists for Secrets Gradle Plugin in CI environments
@@ -68,153 +61,66 @@ if [ ! -f "$APP_HOME/debug.keystore" ]; then
     fi
 fi
 
-# 3. Handle missing gradle-wrapper.jar (e.g., when exported via text-only Git sync)
-WRAPPER_JAR="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
-if [ ! -f "$WRAPPER_JAR" ]; then
-    REQ_GRADLE_VER="9.3.1"
-    if [ -f "$APP_HOME/gradle/wrapper/gradle-wrapper.properties" ]; then
-        EXTRACTED_VER=$(sed -n 's/.*gradle-\([0-9.]*\)-bin\.zip.*/\1/p' "$APP_HOME/gradle/wrapper/gradle-wrapper.properties" | head -n 1)
-        if [ -n "$EXTRACTED_VER" ]; then
-            REQ_GRADLE_VER="$EXTRACTED_VER"
-        fi
+# 3. Auto-accept Android SDK licenses in CI so compileSdk 36.1 can install cleanly
+if [ "$CI" = "true" ] || [ "$GITHUB_ACTIONS" = "true" ]; then
+    SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+    if [ -n "$SDK_ROOT" ]; then
+        mkdir -p "$SDK_ROOT/licenses" 2>/dev/null || true
+        printf "\n8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb78af6dfcb131a6481e\n24333f8a63b6825ea9c5514f83c2829b004d1fee\n84831b9409646a918e30573bab4c9c91346d8abd\n" > "$SDK_ROOT/licenses/android-sdk-license" 2>/dev/null || true
+        printf "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910\n" > "$SDK_ROOT/licenses/android-sdk-preview-license" 2>/dev/null || true
     fi
+fi
 
-    # If system gradle matches the required version, use it directly
-    if command -v gradle >/dev/null 2>&1; then
-        INSTALLED_VER=$(gradle --version 2>/dev/null | awk '/^Gradle / {print $2}' | head -n 1)
-        if [ "$INSTALLED_VER" = "$REQ_GRADLE_VER" ]; then
-            exec gradle "$@"
-        fi
+# 4. In CI, ensure JAVA_HOME points to JDK 21 if available on the runner
+if [ "$CI" = "true" ] || [ "$GITHUB_ACTIONS" = "true" ]; then
+    if [ -n "$JAVA_HOME_21_X64" ] && [ -d "$JAVA_HOME_21_X64" ]; then
+        export JAVA_HOME="$JAVA_HOME_21_X64"
+        export PATH="$JAVA_HOME/bin:$PATH"
+    elif [ -d "/usr/lib/jvm/temurin-21-jdk-amd64" ]; then
+        export JAVA_HOME="/usr/lib/jvm/temurin-21-jdk-amd64"
+        export PATH="$JAVA_HOME/bin:$PATH"
     fi
+fi
 
-    # Otherwise download and cache the required Gradle distribution directly
-    DIST_DIR="${GRADLE_USER_HOME:-$HOME/.gradle}/wrapper/dists/gradle-${REQ_GRADLE_VER}-bin"
-    GRADLE_BIN="$DIST_DIR/gradle-${REQ_GRADLE_VER}/bin/gradle"
-    if [ ! -x "$GRADLE_BIN" ]; then
-        mkdir -p "$DIST_DIR"
-        DIST_URL="https://services.gradle.org/distributions/gradle-${REQ_GRADLE_VER}-bin.zip"
-        echo "Downloading $DIST_URL ..."
-        if command -v curl >/dev/null 2>&1; then
-            curl -fsSL -o "$DIST_DIR/gradle.zip" "$DIST_URL"
-        elif command -v wget >/dev/null 2>&1; then
-            wget -q -O "$DIST_DIR/gradle.zip" "$DIST_URL"
-        fi
-        if [ -f "$DIST_DIR/gradle.zip" ]; then
-            unzip -q -o "$DIST_DIR/gradle.zip" -d "$DIST_DIR"
-            rm -f "$DIST_DIR/gradle.zip"
-            chmod +x "$GRADLE_BIN" 2>/dev/null || true
-        fi
+# 5. Resolve and execute the required Gradle distribution from gradle-wrapper.properties
+REQ_GRADLE_VER="9.3.1"
+if [ -f "$APP_HOME/gradle/wrapper/gradle-wrapper.properties" ]; then
+    EXTRACTED_VER=$(sed -n 's/.*gradle-\([0-9.]*\)-bin\.zip.*/\1/p' "$APP_HOME/gradle/wrapper/gradle-wrapper.properties" | head -n 1)
+    if [ -n "$EXTRACTED_VER" ]; then
+        REQ_GRADLE_VER="$EXTRACTED_VER"
     fi
+fi
 
-    if [ -x "$GRADLE_BIN" ]; then
-        exec "$GRADLE_BIN" "$@"
-    elif command -v gradle >/dev/null 2>&1; then
+if command -v gradle >/dev/null 2>&1; then
+    INSTALLED_VER=$(gradle --version 2>/dev/null | awk '/^Gradle / {print $2}' | head -n 1)
+    if [ "$INSTALLED_VER" = "$REQ_GRADLE_VER" ]; then
         exec gradle "$@"
     fi
 fi
 
-# Use the maximum available, or set MAX_FD != -1 to use that value.
-MAX_FD=maximum
-
-warn () {
-    echo "$*"
-} >&2
-
-die () {
-    echo
-    echo "$*"
-    echo
-    exit 1
-} >&2
-
-# OS specific support (must be 'true' or 'false').
-cygwin=false
-msys=false
-darwin=false
-nonstop=false
-case "$( uname )" in                #(
-  CYGWIN* )         cygwin=true  ;; #(
-  Darwin* )         darwin=true  ;; #(
-  MSYS* | MINGW* )  msys=true    ;; #(
-  NONSTOP* )        nonstop=true ;;
-esac
-
-# Determine the Java command to use to start the JVM.
-if [ -n "$JAVA_HOME" ] ; then
-    if [ -x "$JAVA_HOME/jre/sh/java" ] ; then
-        JAVACMD=$JAVA_HOME/jre/sh/java
-    else
-        JAVACMD=$JAVA_HOME/bin/java
+DIST_DIR="${GRADLE_USER_HOME:-$HOME/.gradle}/wrapper/dists/gradle-${REQ_GRADLE_VER}-bin"
+GRADLE_BIN="$DIST_DIR/gradle-${REQ_GRADLE_VER}/bin/gradle"
+if [ ! -x "$GRADLE_BIN" ]; then
+    mkdir -p "$DIST_DIR"
+    DIST_URL="https://services.gradle.org/distributions/gradle-${REQ_GRADLE_VER}-bin.zip"
+    echo "Downloading Gradle ${REQ_GRADLE_VER} from ${DIST_URL} ..."
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL -o "$DIST_DIR/gradle.zip" "$DIST_URL"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q -O "$DIST_DIR/gradle.zip" "$DIST_URL"
     fi
-    if [ ! -x "$JAVACMD" ] ; then
-        die "ERROR: JAVA_HOME is set to an invalid directory: $JAVA_HOME
-
-Please set the JAVA_HOME variable in your environment to match the
-location of your Java installation."
+    if [ -f "$DIST_DIR/gradle.zip" ]; then
+        unzip -q -o "$DIST_DIR/gradle.zip" -d "$DIST_DIR"
+        rm -f "$DIST_DIR/gradle.zip"
+        chmod +x "$GRADLE_BIN" 2>/dev/null || true
     fi
+fi
+
+if [ -x "$GRADLE_BIN" ]; then
+    exec "$GRADLE_BIN" "$@"
+elif command -v gradle >/dev/null 2>&1; then
+    exec gradle "$@"
 else
-    JAVACMD=java
-    if ! command -v java >/dev/null 2>&1
-    then
-        die "ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH.
-
-Please set the JAVA_HOME variable in your environment to match the
-location of your Java installation."
-    fi
+    echo "ERROR: Could not locate or download Gradle ${REQ_GRADLE_VER}." >&2
+    exit 1
 fi
-
-# Increase the maximum file descriptors if we can.
-if ! "$cygwin" && ! "$darwin" && ! "$nonstop" ; then
-    case $MAX_FD in #(
-      max*)
-        MAX_FD=$( ulimit -H -n ) ||
-            warn "Could not query maximum file descriptor limit"
-    esac
-    case $MAX_FD in  #(
-      '' | soft) :;; #(
-      *)
-        ulimit -n "$MAX_FD" ||
-            warn "Could not set maximum file descriptor limit to $MAX_FD"
-    esac
-fi
-
-# For Cygwin or MSYS, switch paths to Windows format before running java
-if "$cygwin" || "$msys" ; then
-    APP_HOME=$( cygpath --path --mixed "$APP_HOME" )
-    JAVACMD=$( cygpath --unix "$JAVACMD" )
-    for arg do
-        if
-            case $arg in                                #(
-              -*)   false ;;                            #(
-              /?*)  t=${arg#/} t=/${t%%/*}
-                    [ -e "$t" ] ;;                      #(
-              *)    false ;;
-            esac
-        then
-            arg=$( cygpath --path --ignore --mixed "$arg" )
-        fi
-        shift
-        set -- "$@" "$arg"
-    done
-fi
-
-DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m"'
-
-set -- \
-        "-Dorg.gradle.appname=$APP_BASE_NAME" \
-        -jar "$APP_HOME/gradle/wrapper/gradle-wrapper.jar" \
-        "$@"
-
-if ! command -v xargs >/dev/null 2>&1
-then
-    die "xargs is not available"
-fi
-
-eval "set -- $(
-        printf '%s\n' "$DEFAULT_JVM_OPTS $JAVA_OPTS $GRADLE_OPTS" |
-        xargs -n1 |
-        sed ' s~[^-[:alnum:]+,./:=@_]~\\&~g; ' |
-        tr '\n' ' '
-    )" '"$@"'
-
-exec "$JAVACMD" "$@"
