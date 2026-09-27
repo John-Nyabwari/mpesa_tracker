@@ -42,19 +42,74 @@ APP_BASE_NAME=${0##*/}
 # Discard cd standard output in case $CDPATH is set (https://github.com/gradle/gradle/issues/25036)
 APP_HOME=$( cd -P "${APP_HOME:-./}" > /dev/null && printf '%s\n' "$PWD" ) || exit
 
-# Auto-decode debug.keystore from debug.keystore.base64 if missing in CI environments
-if [ ! -f "$APP_HOME/debug.keystore" ] && [ -f "$APP_HOME/debug.keystore.base64" ]; then
-    base64 -d "$APP_HOME/debug.keystore.base64" > "$APP_HOME/debug.keystore" 2>/dev/null || true
+# 1. Ensure .env exists for Secrets Gradle Plugin in CI environments
+if [ ! -f "$APP_HOME/.env" ]; then
+    if [ -f "$APP_HOME/.env.example" ]; then
+        cp "$APP_HOME/.env.example" "$APP_HOME/.env" 2>/dev/null || true
+    else
+        touch "$APP_HOME/.env" 2>/dev/null || true
+    fi
 fi
 
-# If gradle-wrapper.jar is missing (e.g., text-only git export) and system gradle is installed, delegate or bootstrap wrapper
+# 2. Ensure debug.keystore exists in CI environments without modifying existing keystores
+if [ ! -f "$APP_HOME/debug.keystore" ]; then
+    if [ -f "$APP_HOME/debug.keystore.base64" ]; then
+        base64 -d "$APP_HOME/debug.keystore.base64" > "$APP_HOME/debug.keystore" 2>/dev/null || true
+    elif command -v keytool >/dev/null 2>&1; then
+        keytool -genkeypair -v \
+            -keystore "$APP_HOME/debug.keystore" \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US" >/dev/null 2>&1 || true
+    fi
+fi
+
+# 3. Handle missing gradle-wrapper.jar (e.g., when exported via text-only Git sync)
 WRAPPER_JAR="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
 if [ ! -f "$WRAPPER_JAR" ]; then
+    REQ_GRADLE_VER="9.3.1"
+    if [ -f "$APP_HOME/gradle/wrapper/gradle-wrapper.properties" ]; then
+        EXTRACTED_VER=$(sed -n 's/.*gradle-\([0-9.]*\)-bin\.zip.*/\1/p' "$APP_HOME/gradle/wrapper/gradle-wrapper.properties" | head -n 1)
+        if [ -n "$EXTRACTED_VER" ]; then
+            REQ_GRADLE_VER="$EXTRACTED_VER"
+        fi
+    fi
+
+    # If system gradle matches the required version, use it directly
     if command -v gradle >/dev/null 2>&1; then
+        INSTALLED_VER=$(gradle --version 2>/dev/null | awk '/^Gradle / {print $2}' | head -n 1)
+        if [ "$INSTALLED_VER" = "$REQ_GRADLE_VER" ]; then
+            exec gradle "$@"
+        fi
+    fi
+
+    # Otherwise download and cache the required Gradle distribution directly
+    DIST_DIR="${GRADLE_USER_HOME:-$HOME/.gradle}/wrapper/dists/gradle-${REQ_GRADLE_VER}-bin"
+    GRADLE_BIN="$DIST_DIR/gradle-${REQ_GRADLE_VER}/bin/gradle"
+    if [ ! -x "$GRADLE_BIN" ]; then
+        mkdir -p "$DIST_DIR"
+        DIST_URL="https://services.gradle.org/distributions/gradle-${REQ_GRADLE_VER}-bin.zip"
+        echo "Downloading $DIST_URL ..."
+        if command -v curl >/dev/null 2>&1; then
+            curl -fsSL -o "$DIST_DIR/gradle.zip" "$DIST_URL"
+        elif command -v wget >/dev/null 2>&1; then
+            wget -q -O "$DIST_DIR/gradle.zip" "$DIST_URL"
+        fi
+        if [ -f "$DIST_DIR/gradle.zip" ]; then
+            unzip -q -o "$DIST_DIR/gradle.zip" -d "$DIST_DIR"
+            rm -f "$DIST_DIR/gradle.zip"
+            chmod +x "$GRADLE_BIN" 2>/dev/null || true
+        fi
+    fi
+
+    if [ -x "$GRADLE_BIN" ]; then
+        exec "$GRADLE_BIN" "$@"
+    elif command -v gradle >/dev/null 2>&1; then
         exec gradle "$@"
-    elif command -v curl >/dev/null 2>&1; then
-        mkdir -p "$APP_HOME/gradle/wrapper"
-        curl -fsSL -o "$WRAPPER_JAR" "https://raw.githubusercontent.com/gradle/gradle/v8.11.1/gradle/wrapper/gradle-wrapper.jar" || true
     fi
 fi
 
