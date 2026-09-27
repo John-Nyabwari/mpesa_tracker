@@ -1,0 +1,27 @@
+<resources>
+    <string name="app_name">M-Pesa Tracker</string>
+    <string name="dashboard_title">M-Pesa Tracker</string>
+    <string name="net_period_balance">Net Period Flow</string>
+    <string name="latest_mpesa_balance">Latest M-Pesa Balance</string>
+    <string name="from_latest_sms">From latest SMS</string>
+    <string name="income_label">Income</string>
+    <string name="expenses_label">Expenses</string>
+    <string name="fees_and_fuliza_label">Fees &amp; Fuliza</string>
+    <string name="top_expense_categories">Expense Breakdown by Category</string>
+    <string name="transactions_header">Transactions</string>
+    <string name="categories_nav">Categories</string>
+    <string name="rules_nav">Rules &amp; Review</string>
+    <string name="settings_nav">Settings</string>
+    <string name="test_sms_nav">Test / Paste SMS</string>
+    <string name="permissions_historical_title">Historical SMS Parsing</string>
+    <string name="permissions_live_title">Live SMS Ingestion</string>
+    <string name="permissions_historical_desc">Grant READ_SMS permission so M-Pesa Tracker can scan your existing M-Pesa confirmation messages from your inbox and build your financial ledger automatically.</string>
+    <string name="permissions_live_desc">Grant RECEIVE_SMS permission so incoming M-Pesa confirmation messages are parsed automatically in the background via WorkManager.</string>
+    <string name="grant_read_sms">Grant SMS Reading Permission</string>
+    <string name="grant_receive_sms">Grant Live SMS Permission</string>
+    <string name="skip_manual_mode">Skip / Continue to Dashboard</string>
+    <string name="empty_transactions_title">No M-Pesa Transactions Yet</string>
+    <string name="empty_transactions_subtitle">Scan your SMS inbox or test the 12 Safaricom M-Pesa SMS subtypes directly using the SMS Parser Tester.</string>
+    <string name="scan_inbox_now">Scan SMS Inbox</string>
+    <string name="load_sample_mpesa_sms">Run 12 M-Pesa Subtypes Demo</string>
+</resources>
